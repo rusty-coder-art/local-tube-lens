@@ -14,6 +14,7 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [videoData, setVideoData] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
+  const [allComments, setAllComments] = useState<any[]>([]); // Store ALL comments for export
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("recent");
   const [minLikes, setMinLikes] = useState("");
@@ -49,6 +50,7 @@ const Index = () => {
     setIsLoading(true);
     setVideoData(null);
     setComments([]);
+    setAllComments([]);
 
     try {
       // Fetch video details
@@ -73,27 +75,38 @@ const Index = () => {
         thumbnailUrl: video.snippet.thumbnails.high.url,
       });
 
-      // Fetch comments
-      const commentsResponse = await fetch(
-        `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=50&key=${apiKey}`
-      );
-      const commentsJson = await commentsResponse.json();
+      // Fetch ALL comments using pagination
+      let allFetchedComments: any[] = [];
+      let nextPageToken: string | undefined = undefined;
+      
+      do {
+        const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+        const commentsResponse = await fetch(url);
+        const commentsJson = await commentsResponse.json();
 
-      if (commentsJson.items) {
-        const formattedComments = commentsJson.items.map((item: any) => ({
-          id: item.id,
-          authorName: item.snippet.topLevelComment.snippet.authorDisplayName,
-          authorProfileImageUrl: item.snippet.topLevelComment.snippet.authorProfileImageUrl,
-          textDisplay: item.snippet.topLevelComment.snippet.textDisplay,
-          likeCount: item.snippet.topLevelComment.snippet.likeCount,
-          publishedAt: item.snippet.topLevelComment.snippet.publishedAt,
-        }));
-        setComments(formattedComments);
-      }
+        if (commentsJson.items) {
+          const formattedComments = commentsJson.items.map((item: any) => ({
+            id: item.id,
+            authorName: item.snippet.topLevelComment.snippet.authorDisplayName,
+            authorProfileImageUrl: item.snippet.topLevelComment.snippet.authorProfileImageUrl,
+            textDisplay: item.snippet.topLevelComment.snippet.textDisplay,
+            likeCount: item.snippet.topLevelComment.snippet.likeCount,
+            publishedAt: item.snippet.topLevelComment.snippet.publishedAt,
+          }));
+          allFetchedComments = [...allFetchedComments, ...formattedComments];
+        }
+
+        nextPageToken = commentsJson.nextPageToken;
+      } while (nextPageToken);
+
+      // Store all comments for export
+      setAllComments(allFetchedComments);
+      // Display only first 50 comments
+      setComments(allFetchedComments.slice(0, 50));
 
       toast({
         title: "Success!",
-        description: "Video data loaded successfully",
+        description: `Loaded ${allFetchedComments.length} comments from video`,
       });
     } catch (error: any) {
       toast({
@@ -146,9 +159,12 @@ const Index = () => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <ExportButtons 
                     videoData={videoData} 
-                    comments={comments}
+                    comments={allComments}
                     disabled={false}
                   />
+                  <p className="text-sm text-muted-foreground">
+                    Showing 50 of {allComments.length} comments • Export includes all comments
+                  </p>
                 </div>
                 <CommentFilters
                   searchQuery={searchQuery}
