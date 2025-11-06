@@ -1,21 +1,51 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { VideoInput } from "@/components/VideoInput";
 import { VideoInfo } from "@/components/VideoInfo";
 import { CommentsList } from "@/components/CommentsList";
+import { ApiKeyDialog } from "@/components/ApiKeyDialog";
+import { CommentFilters } from "@/components/CommentFilters";
+import { ExportButtons } from "@/components/ExportButtons";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
-
-// You'll need to get your own YouTube Data API v3 key from:
-// https://console.cloud.google.com/apis/credentials
-const YOUTUBE_API_KEY = "YOUR_YOUTUBE_API_KEY_HERE";
+import { Loader2, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const Index = () => {
+  const [apiKey, setApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [videoData, setVideoData] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("recent");
+  const [minLikes, setMinLikes] = useState("");
   const { toast } = useToast();
 
+  // Load API key from localStorage on mount
+  useEffect(() => {
+    const savedKey = localStorage.getItem("youtube_api_key");
+    if (savedKey) {
+      setApiKey(savedKey);
+    }
+  }, []);
+
+  const handleSaveApiKey = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem("youtube_api_key", key);
+    toast({
+      title: "API Key Saved",
+      description: "Your YouTube API key has been saved locally",
+    });
+  };
+
   const fetchVideoData = async (videoId: string) => {
+    if (!apiKey) {
+      toast({
+        title: "API Key Required",
+        description: "Please set your YouTube API key first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
     setVideoData(null);
     setComments([]);
@@ -23,7 +53,7 @@ const Index = () => {
     try {
       // Fetch video details
       const videoResponse = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${YOUTUBE_API_KEY}`
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${videoId}&key=${apiKey}`
       );
       const videoJson = await videoResponse.json();
 
@@ -45,7 +75,7 @@ const Index = () => {
 
       // Fetch comments
       const commentsResponse = await fetch(
-        `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=50&key=${YOUTUBE_API_KEY}`
+        `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=50&key=${apiKey}`
       );
       const commentsJson = await commentsResponse.json();
 
@@ -79,14 +109,26 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-6xl mx-auto space-y-8">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">
             YouTube Data Analyzer
           </h1>
           <p className="text-muted-foreground">
             Fetch video statistics and comments from any YouTube video
           </p>
+          <div className="flex justify-center">
+            <ApiKeyDialog apiKey={apiKey} onSave={handleSaveApiKey} />
+          </div>
         </div>
+
+        {!apiKey && (
+          <Alert className="max-w-3xl mx-auto bg-card border-accent">
+            <AlertCircle className="h-4 w-4 text-accent" />
+            <AlertDescription>
+              Please set your YouTube API key to start analyzing videos. Click the button above to add your key.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <VideoInput onSubmit={fetchVideoData} isLoading={isLoading} />
 
@@ -99,16 +141,37 @@ const Index = () => {
         {videoData && !isLoading && (
           <div className="space-y-8 animate-in fade-in duration-500">
             <VideoInfo data={videoData} />
-            {comments.length > 0 && <CommentsList comments={comments} />}
+            {comments.length > 0 && (
+              <>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <ExportButtons 
+                    videoData={videoData} 
+                    comments={comments}
+                    disabled={false}
+                  />
+                </div>
+                <CommentFilters
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery}
+                  sortBy={sortBy}
+                  onSortChange={setSortBy}
+                  minLikes={minLikes}
+                  onMinLikesChange={setMinLikes}
+                />
+                <CommentsList 
+                  comments={comments}
+                  searchQuery={searchQuery}
+                  sortBy={sortBy}
+                  minLikes={parseInt(minLikes) || 0}
+                />
+              </>
+            )}
           </div>
         )}
 
-        {!videoData && !isLoading && (
+        {!videoData && !isLoading && apiKey && (
           <div className="text-center py-12 text-muted-foreground">
             <p className="text-lg">Enter a YouTube video URL to get started</p>
-            <p className="text-sm mt-2">
-              Don't forget to add your YouTube API key in the code!
-            </p>
           </div>
         )}
       </div>
