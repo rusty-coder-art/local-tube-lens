@@ -6,6 +6,14 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Download, PlayCircle, Eye, ThumbsUp } from "lucide-react";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 export default function ChannelAnalysis() {
   const [channelUrl, setChannelUrl] = useState("");
@@ -13,6 +21,8 @@ export default function ChannelAnalysis() {
   const [channelData, setChannelData] = useState<any>(null);
   const [videos, setVideos] = useState<any[]>([]);
   const [apiKey, setApiKey] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const videosPerPage = 30;
   
   // Load API key from localStorage on mount
   useEffect(() => {
@@ -138,6 +148,7 @@ export default function ChannelAnalysis() {
       );
 
       setVideos(sortedVideos);
+      setCurrentPage(1);
 
       toast({
         title: "Success!",
@@ -296,7 +307,7 @@ export default function ChannelAnalysis() {
               Videos by Popularity ({videos.length} total)
             </h2>
             <div className="grid gap-4">
-              {videos.map((video) => (
+              {videos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
                 <Card key={video.id} className="p-4 hover:shadow-lg transition-shadow">
                   <div className="flex flex-col md:flex-row gap-4">
                     <img
@@ -337,6 +348,38 @@ export default function ChannelAnalysis() {
                 </Card>
               ))}
             </div>
+            
+            {videos.length > videosPerPage && (
+              <div className="mt-8 flex justify-center">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: Math.ceil(videos.length / videosPerPage) }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => setCurrentPage(page)}
+                          isActive={currentPage === page}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(videos.length / videosPerPage), p + 1))}
+                        className={currentPage === Math.ceil(videos.length / videosPerPage) ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
           </div>
         )}
       </div>
