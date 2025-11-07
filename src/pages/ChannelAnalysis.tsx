@@ -34,6 +34,7 @@ export default function ChannelAnalysis() {
   const [fetchPriority, setFetchPriority] = useState<"views" | "comments" | "likes" | "date">("views");
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
+  const [cancelBulkDownload, setCancelBulkDownload] = useState(false);
   const videosPerPage = 30;
   const maxVideos = 200;
   
@@ -231,8 +232,9 @@ export default function ChannelAnalysis() {
       } while (nextPageToken);
 
       // Create CSV
-      const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
-      const rows = allComments.map(comment => [
+      const headers = ['#', 'Author', 'Comment', 'Likes', 'Published Date'];
+      const rows = allComments.map((comment, index) => [
+        index + 1,
         `"${comment.authorName.replace(/"/g, '""')}"`,
         `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
         comment.likeCount,
@@ -289,12 +291,23 @@ export default function ChannelAnalysis() {
     }
 
     setIsDownloadingAll(true);
+    setCancelBulkDownload(false);
     setDownloadProgress({ current: 0, total: videosWithComments.length });
 
     let successCount = 0;
     let totalComments = 0;
 
     for (let i = 0; i < videosWithComments.length; i++) {
+      // Check if user cancelled
+      if (cancelBulkDownload) {
+        toast({
+          title: "Download Cancelled",
+          description: `Downloaded ${totalComments} comments from ${successCount} videos before cancellation`,
+          variant: "destructive",
+        });
+        break;
+      }
+
       const video = videosWithComments[i];
       setDownloadProgress({ current: i + 1, total: videosWithComments.length });
       
@@ -310,11 +323,14 @@ export default function ChannelAnalysis() {
 
     setIsDownloadingAll(false);
     setDownloadProgress({ current: 0, total: 0 });
+    setCancelBulkDownload(false);
 
-    toast({
-      title: "Bulk Download Complete!",
-      description: `Downloaded ${totalComments} comments from ${successCount} videos`,
-    });
+    if (!cancelBulkDownload) {
+      toast({
+        title: "Bulk Download Complete!",
+        description: `Downloaded ${totalComments} comments from ${successCount} videos`,
+      });
+    }
   };
 
   const getPaginationItems = () => {
@@ -478,16 +494,27 @@ export default function ChannelAnalysis() {
                   </Select>
                 </div>
               </div>
-              <Button
-                onClick={downloadAllCommentsCSV}
-                disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
-                className="w-full sm:w-auto gap-2"
-              >
-                <Download className="w-4 h-4" />
-                {isDownloadingAll 
-                  ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
-                  : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
-              </Button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <Button
+                  onClick={downloadAllCommentsCSV}
+                  disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
+                  className="flex-1 sm:flex-initial gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  {isDownloadingAll 
+                    ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
+                    : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
+                </Button>
+                {isDownloadingAll && (
+                  <Button
+                    onClick={() => setCancelBulkDownload(true)}
+                    variant="destructive"
+                    className="gap-2"
+                  >
+                    Stop
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="grid gap-4">
               {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
