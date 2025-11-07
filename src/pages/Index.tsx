@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { VideoInput } from "@/components/VideoInput";
 import { VideoInfo } from "@/components/VideoInfo";
 import { CommentsList } from "@/components/CommentsList";
@@ -8,6 +9,7 @@ import { ExportButtons } from "@/components/ExportButtons";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 const Index = () => {
   const [apiKey, setApiKey] = useState("");
@@ -129,8 +131,11 @@ const Index = () => {
           <p className="text-muted-foreground">
             Fetch video statistics and comments from any YouTube video
           </p>
-          <div className="flex justify-center">
+          <div className="flex justify-center gap-4">
             <ApiKeyDialog apiKey={apiKey} onSave={handleSaveApiKey} />
+            <Link to="/channel-analysis">
+              <Button variant="secondary">Channel Analysis</Button>
+            </Link>
           </div>
         </div>
 
