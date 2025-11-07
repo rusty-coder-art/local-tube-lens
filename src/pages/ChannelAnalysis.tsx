@@ -7,6 +7,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Download, PlayCircle, Eye, ThumbsUp } from "lucide-react";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Pagination,
   PaginationContent,
   PaginationEllipsis,
@@ -23,6 +30,7 @@ export default function ChannelAnalysis() {
   const [videos, setVideos] = useState<any[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [sortBy, setSortBy] = useState<"views" | "comments" | "likes" | "date">("views");
   const videosPerPage = 30;
   
   // Load API key from localStorage on mount
@@ -145,12 +153,7 @@ export default function ChannelAnalysis() {
         nextPageToken = playlistJson.nextPageToken;
       } while (nextPageToken);
 
-      // Sort by view count (popularity)
-      const sortedVideos = allVideos.sort((a, b) => 
-        parseInt(b.statistics.viewCount) - parseInt(a.statistics.viewCount)
-      );
-
-      setVideos(sortedVideos);
+      setVideos(allVideos);
       setCurrentPage(1);
 
       toast({
@@ -273,6 +276,25 @@ export default function ChannelAnalysis() {
     return items;
   };
 
+  const sortVideos = (videosToSort: any[]) => {
+    return [...videosToSort].sort((a, b) => {
+      switch (sortBy) {
+        case "views":
+          return parseInt(b.statistics.viewCount) - parseInt(a.statistics.viewCount);
+        case "comments":
+          return parseInt(b.statistics.commentCount || 0) - parseInt(a.statistics.commentCount || 0);
+        case "likes":
+          return parseInt(b.statistics.likeCount || 0) - parseInt(a.statistics.likeCount || 0);
+        case "date":
+          return new Date(b.snippet.publishedAt).getTime() - new Date(a.snippet.publishedAt).getTime();
+        default:
+          return 0;
+      }
+    });
+  };
+
+  const sortedVideos = sortVideos(videos);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -343,11 +365,27 @@ export default function ChannelAnalysis() {
 
         {videos.length > 0 && (
           <div>
-            <h2 className="text-2xl font-bold mb-4">
-              Videos by Popularity ({videos.length} total)
-            </h2>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+              <h2 className="text-2xl font-bold">
+                Videos ({videos.length} total)
+              </h2>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Sort by:</span>
+                <Select value={sortBy} onValueChange={(value: any) => { setSortBy(value); setCurrentPage(1); }}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="views">Popularity (Views)</SelectItem>
+                    <SelectItem value="comments">Comments</SelectItem>
+                    <SelectItem value="likes">Likes</SelectItem>
+                    <SelectItem value="date">Upload Date</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="grid gap-4">
-              {videos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
+              {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
                 <Card key={video.id} className="p-4 hover:shadow-lg transition-shadow">
                   <div className="flex flex-col md:flex-row gap-4">
                     <img
@@ -389,7 +427,7 @@ export default function ChannelAnalysis() {
               ))}
             </div>
             
-            {videos.length > videosPerPage && (
+            {sortedVideos.length > videosPerPage && (
               <div className="mt-8 flex justify-center">
                 <Pagination>
                   <PaginationContent>
@@ -416,8 +454,8 @@ export default function ChannelAnalysis() {
                     ))}
                     <PaginationItem>
                       <PaginationNext 
-                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(videos.length / videosPerPage), p + 1))}
-                        className={currentPage === Math.ceil(videos.length / videosPerPage) ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(sortedVideos.length / videosPerPage), p + 1))}
+                        className={currentPage === Math.ceil(sortedVideos.length / videosPerPage) ? "pointer-events-none opacity-50" : "cursor-pointer"}
                       />
                     </PaginationItem>
                   </PaginationContent>
