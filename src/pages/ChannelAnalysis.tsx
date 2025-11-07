@@ -32,6 +32,8 @@ export default function ChannelAnalysis() {
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<"views" | "comments" | "likes" | "date">("views");
   const [fetchPriority, setFetchPriority] = useState<"views" | "comments" | "likes" | "date">("views");
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
   const videosPerPage = 30;
   const maxVideos = 200;
   
@@ -195,14 +197,16 @@ export default function ChannelAnalysis() {
     }
   };
 
-  const downloadCommentsCSV = async (videoId: string, videoTitle: string) => {
+  const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
     if (!apiKey) return;
 
     try {
-      toast({
-        title: "Fetching comments...",
-        description: "This may take a moment",
-      });
+      if (showToast) {
+        toast({
+          title: "Fetching comments...",
+          description: "This may take a moment",
+        });
+      }
 
       // Fetch all comments
       let allComments: any[] = [];
@@ -250,17 +254,67 @@ export default function ChannelAnalysis() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      toast({
-        title: "Success!",
-        description: `Downloaded ${allComments.length} comments`,
-      });
+      if (showToast) {
+        toast({
+          title: "Success!",
+          description: `Downloaded ${allComments.length} comments`,
+        });
+      }
+      
+      return allComments.length;
     } catch (error: any) {
+      if (showToast) {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to fetch comments",
+          variant: "destructive",
+        });
+      }
+      return 0;
+    }
+  };
+
+  const downloadAllCommentsCSV = async () => {
+    if (!apiKey) return;
+
+    const videosWithComments = videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0");
+    
+    if (videosWithComments.length === 0) {
       toast({
-        title: "Error",
-        description: error.message || "Failed to fetch comments",
+        title: "No Comments",
+        description: "None of the videos have comments to export",
         variant: "destructive",
       });
+      return;
     }
+
+    setIsDownloadingAll(true);
+    setDownloadProgress({ current: 0, total: videosWithComments.length });
+
+    let successCount = 0;
+    let totalComments = 0;
+
+    for (let i = 0; i < videosWithComments.length; i++) {
+      const video = videosWithComments[i];
+      setDownloadProgress({ current: i + 1, total: videosWithComments.length });
+      
+      const count = await downloadCommentsCSV(video.id, video.snippet.title, false);
+      if (count > 0) {
+        successCount++;
+        totalComments += count;
+      }
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    setIsDownloadingAll(false);
+    setDownloadProgress({ current: 0, total: 0 });
+
+    toast({
+      title: "Bulk Download Complete!",
+      description: `Downloaded ${totalComments} comments from ${successCount} videos`,
+    });
   };
 
   const getPaginationItems = () => {
@@ -404,24 +458,36 @@ export default function ChannelAnalysis() {
 
         {videos.length > 0 && (
           <div>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-              <h2 className="text-2xl font-bold">
-                Videos ({videos.length} total)
-              </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Sort by:</span>
-                <Select value={sortBy} onValueChange={(value: any) => { setSortBy(value); setCurrentPage(1); }}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="views">Popularity (Views)</SelectItem>
-                    <SelectItem value="comments">Comments</SelectItem>
-                    <SelectItem value="likes">Likes</SelectItem>
-                    <SelectItem value="date">Upload Date</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="flex flex-col gap-4 mb-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 className="text-2xl font-bold">
+                  Videos ({videos.length} total)
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Sort by:</span>
+                  <Select value={sortBy} onValueChange={(value: any) => { setSortBy(value); setCurrentPage(1); }}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="views">Popularity (Views)</SelectItem>
+                      <SelectItem value="comments">Comments</SelectItem>
+                      <SelectItem value="likes">Likes</SelectItem>
+                      <SelectItem value="date">Upload Date</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+              <Button
+                onClick={downloadAllCommentsCSV}
+                disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
+                className="w-full sm:w-auto gap-2"
+              >
+                <Download className="w-4 h-4" />
+                {isDownloadingAll 
+                  ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
+                  : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
+              </Button>
             </div>
             <div className="grid gap-4">
               {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
