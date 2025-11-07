@@ -31,7 +31,9 @@ export default function ChannelAnalysis() {
   const [apiKey, setApiKey] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<"views" | "comments" | "likes" | "date">("views");
+  const [fetchPriority, setFetchPriority] = useState<"views" | "comments" | "likes" | "date">("views");
   const videosPerPage = 30;
+  const maxVideos = 200;
   
   // Load API key from localStorage on mount
   useEffect(() => {
@@ -127,7 +129,7 @@ export default function ChannelAnalysis() {
         viewCount: parseInt(channel.statistics.viewCount).toLocaleString(),
       });
 
-      // Fetch all videos from the uploads playlist
+      // Fetch videos from the uploads playlist (limit to maxVideos)
       let allVideos: any[] = [];
       let nextPageToken: string | undefined = undefined;
 
@@ -151,14 +153,36 @@ export default function ChannelAnalysis() {
         }
 
         nextPageToken = playlistJson.nextPageToken;
+        
+        // Stop if we've fetched enough videos
+        if (allVideos.length >= maxVideos) {
+          break;
+        }
       } while (nextPageToken);
 
-      setVideos(allVideos);
+      // Sort by the selected priority and limit to maxVideos
+      const sortedByPriority = allVideos.sort((a, b) => {
+        switch (fetchPriority) {
+          case "views":
+            return parseInt(b.statistics.viewCount) - parseInt(a.statistics.viewCount);
+          case "comments":
+            return parseInt(b.statistics.commentCount || 0) - parseInt(a.statistics.commentCount || 0);
+          case "likes":
+            return parseInt(b.statistics.likeCount || 0) - parseInt(a.statistics.likeCount || 0);
+          case "date":
+            return new Date(b.snippet.publishedAt).getTime() - new Date(a.snippet.publishedAt).getTime();
+          default:
+            return 0;
+        }
+      }).slice(0, maxVideos);
+
+      setVideos(sortedByPriority);
       setCurrentPage(1);
+      setSortBy(fetchPriority);
 
       toast({
         title: "Success!",
-        description: `Loaded ${sortedVideos.length} videos from channel`,
+        description: `Loaded top ${sortedByPriority.length} videos by ${fetchPriority}`,
       });
     } catch (error: any) {
       toast({
@@ -314,22 +338,37 @@ export default function ChannelAnalysis() {
         </div>
 
         <Card className="p-6 mb-8">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col gap-4">
             <Input
               type="text"
               placeholder="Enter YouTube channel URL (e.g., youtube.com/@channelname)"
               value={channelUrl}
               onChange={(e) => setChannelUrl(e.target.value)}
-              className="flex-1"
               disabled={isLoading}
             />
-            <Button
-              onClick={handleAnalyze}
-              disabled={isLoading || !channelUrl}
-              className="sm:w-auto w-full"
-            >
-              {isLoading ? "Analyzing..." : "Analyze Channel"}
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+              <div className="flex items-center gap-2 flex-1">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">Fetch top 200 by:</span>
+                <Select value={fetchPriority} onValueChange={(value: any) => setFetchPriority(value)}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="views">Views</SelectItem>
+                    <SelectItem value="comments">Comments</SelectItem>
+                    <SelectItem value="likes">Likes</SelectItem>
+                    <SelectItem value="date">Upload Date</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={handleAnalyze}
+                disabled={isLoading || !channelUrl}
+                className="sm:w-auto w-full"
+              >
+                {isLoading ? "Analyzing..." : "Analyze Channel"}
+              </Button>
+            </div>
           </div>
         </Card>
 
