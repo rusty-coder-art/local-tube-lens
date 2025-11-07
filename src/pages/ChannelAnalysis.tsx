@@ -9,6 +9,7 @@ import { ApiKeyDialog } from "@/components/ApiKeyDialog";
 import {
   Pagination,
   PaginationContent,
+  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
@@ -235,6 +236,43 @@ export default function ChannelAnalysis() {
     }
   };
 
+  const getPaginationItems = () => {
+    const totalPages = Math.ceil(videos.length / videosPerPage);
+    const items = [];
+    const maxVisible = 5;
+
+    if (totalPages <= maxVisible + 2) {
+      // Show all pages if total is small
+      for (let i = 1; i <= totalPages; i++) {
+        items.push(i);
+      }
+    } else {
+      // Always show first page
+      items.push(1);
+
+      if (currentPage > 3) {
+        items.push('ellipsis-start');
+      }
+
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+
+      for (let i = start; i <= end; i++) {
+        items.push(i);
+      }
+
+      if (currentPage < totalPages - 2) {
+        items.push('ellipsis-end');
+      }
+
+      // Always show last page
+      items.push(totalPages);
+    }
+
+    return items;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -361,15 +399,19 @@ export default function ChannelAnalysis() {
                         className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
                       />
                     </PaginationItem>
-                    {Array.from({ length: Math.ceil(videos.length / videosPerPage) }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => setCurrentPage(page)}
-                          isActive={currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {getPaginationItems().map((item, index) => (
+                      <PaginationItem key={index}>
+                        {typeof item === 'number' ? (
+                          <PaginationLink
+                            onClick={() => setCurrentPage(item)}
+                            isActive={currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        ) : (
+                          <PaginationEllipsis />
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>
