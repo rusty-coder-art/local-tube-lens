@@ -201,8 +201,6 @@ export default function ChannelAnalysis() {
   const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
     if (!apiKey) return;
 
-    const MAX_COMMENTS = 5000; // Limit to prevent memory/timeout issues
-
     try {
       if (showToast) {
         toast({
@@ -211,9 +209,13 @@ export default function ChannelAnalysis() {
         });
       }
 
-      // Fetch comments with limit
-      let allComments: any[] = [];
+      // Stream comments directly to CSV to handle any size
+      let csvRows: string[] = [];
+      const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
+      csvRows.push(headers.join(','));
+      
       let nextPageToken: string | undefined = undefined;
+      let totalComments = 0;
       let pageCount = 0;
 
       do {
@@ -227,22 +229,22 @@ export default function ChannelAnalysis() {
         const json = await response.json();
 
         if (json.items) {
-          const formattedComments = json.items.map((item: any) => ({
-            authorName: item.snippet.topLevelComment.snippet.authorDisplayName,
-            textDisplay: item.snippet.topLevelComment.snippet.textDisplay,
-            likeCount: item.snippet.topLevelComment.snippet.likeCount,
-            publishedAt: item.snippet.topLevelComment.snippet.publishedAt,
-          }));
-          allComments = [...allComments, ...formattedComments];
+          const rows = json.items.map((item: any) => {
+            const comment = item.snippet.topLevelComment.snippet;
+            return [
+              `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
+              `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
+              comment.likeCount,
+              new Date(comment.publishedAt).toLocaleDateString(),
+            ].join(',');
+          });
+          
+          csvRows.push(...rows);
+          totalComments += json.items.length;
         }
 
         nextPageToken = json.nextPageToken;
         pageCount++;
-        
-        // Stop if we've reached the limit
-        if (allComments.length >= MAX_COMMENTS) {
-          break;
-        }
         
         // Add delay to avoid rate limiting
         if (nextPageToken) {
@@ -250,19 +252,8 @@ export default function ChannelAnalysis() {
         }
       } while (nextPageToken);
 
-      // Create CSV
-      const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
-      const rows = allComments.map(comment => [
-        `"${comment.authorName.replace(/"/g, '""')}"`,
-        `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
-        comment.likeCount,
-        new Date(comment.publishedAt).toLocaleDateString(),
-      ]);
-
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.join(','))
-      ].join('\n');
+      // Create CSV from streamed rows
+      const csvContent = csvRows.join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -274,16 +265,14 @@ export default function ChannelAnalysis() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const limitReached = allComments.length >= MAX_COMMENTS;
-      
       if (showToast) {
         toast({
           title: "Success!",
-          description: `Downloaded ${allComments.length} comments${limitReached ? ' (limit reached)' : ''}`,
+          description: `Downloaded ${totalComments} comments`,
         });
       }
       
-      return allComments.length;
+      return totalComments;
     } catch (error: any) {
       console.error('Error downloading comments:', error);
       if (showToast) {
