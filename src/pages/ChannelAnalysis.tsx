@@ -201,6 +201,8 @@ export default function ChannelAnalysis() {
   const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
     if (!apiKey) return;
 
+    const MAX_COMMENTS = 5000; // Limit to prevent memory/timeout issues
+
     try {
       if (showToast) {
         toast({
@@ -209,13 +211,19 @@ export default function ChannelAnalysis() {
         });
       }
 
-      // Fetch all comments
+      // Fetch comments with limit
       let allComments: any[] = [];
       let nextPageToken: string | undefined = undefined;
+      let pageCount = 0;
 
       do {
         const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
         const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
         const json = await response.json();
 
         if (json.items) {
@@ -229,6 +237,17 @@ export default function ChannelAnalysis() {
         }
 
         nextPageToken = json.nextPageToken;
+        pageCount++;
+        
+        // Stop if we've reached the limit
+        if (allComments.length >= MAX_COMMENTS) {
+          break;
+        }
+        
+        // Add delay to avoid rate limiting
+        if (nextPageToken) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
       } while (nextPageToken);
 
       // Create CSV
@@ -255,19 +274,22 @@ export default function ChannelAnalysis() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
+      const limitReached = allComments.length >= MAX_COMMENTS;
+      
       if (showToast) {
         toast({
           title: "Success!",
-          description: `Downloaded ${allComments.length} comments`,
+          description: `Downloaded ${allComments.length} comments${limitReached ? ' (limit reached)' : ''}`,
         });
       }
       
       return allComments.length;
     } catch (error: any) {
+      console.error('Error downloading comments:', error);
       if (showToast) {
         toast({
           title: "Error",
-          description: error.message || "Failed to fetch comments",
+          description: error.message || "Failed to fetch comments. Try again later.",
           variant: "destructive",
         });
       }
