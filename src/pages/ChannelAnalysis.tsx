@@ -232,9 +232,8 @@ export default function ChannelAnalysis() {
       } while (nextPageToken);
 
       // Create CSV
-      const headers = ['#', 'Author', 'Comment', 'Likes', 'Published Date'];
-      const rows = allComments.map((comment, index) => [
-        index + 1,
+      const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
+      const rows = allComments.map(comment => [
         `"${comment.authorName.replace(/"/g, '""')}"`,
         `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
         comment.likeCount,
@@ -517,14 +516,21 @@ export default function ChannelAnalysis() {
               </div>
             </div>
             <div className="grid gap-4">
-              {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video) => (
+              {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video, index) => (
                 <Card key={video.id} className="p-4 hover:shadow-lg transition-shadow">
                   <div className="flex flex-col md:flex-row gap-4">
-                    <img
-                      src={video.snippet.thumbnails.medium.url}
-                      alt={video.snippet.title}
-                      className="w-full md:w-48 h-32 object-cover rounded"
-                    />
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <span className="text-sm font-semibold text-primary">
+                          {(currentPage - 1) * videosPerPage + index + 1}
+                        </span>
+                      </div>
+                      <img
+                        src={video.snippet.thumbnails.medium.url}
+                        alt={video.snippet.title}
+                        className="w-full md:w-48 h-32 object-cover rounded"
+                      />
+                    </div>
                     <div className="flex-1">
                       <h3 className="font-semibold mb-2 line-clamp-2">
                         {video.snippet.title}
