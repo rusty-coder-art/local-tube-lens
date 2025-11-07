@@ -201,6 +201,20 @@ export default function ChannelAnalysis() {
   const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
     if (!apiKey) return;
 
+    const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
+    const fetchWithRetry = async (url: string) => {
+      let attempt = 0;
+      while (true) {
+        const response = await fetch(url);
+        if (response.ok) return await response.json();
+        if ([429, 403, 500, 503].includes(response.status) && attempt < 4) {
+          await wait(500 * Math.pow(2, attempt++));
+          continue;
+        }
+        throw new Error(`API error: ${response.status}`);
+      }
+    };
+
     try {
       if (showToast) {
         toast({
@@ -209,61 +223,102 @@ export default function ChannelAnalysis() {
         });
       }
 
-      // Stream comments directly to CSV to handle any size
-      let csvRows: string[] = [];
       const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
-      csvRows.push(headers.join(','));
-      
       let nextPageToken: string | undefined = undefined;
       let totalComments = 0;
       let pageCount = 0;
+      const safeTitle = videoTitle.replace(/[\\/:*?"<>|]+/g, '').substring(0, 50);
 
-      do {
-        const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-        
-        const json = await response.json();
+      // Use File System Access API when available for true streaming to disk
+      if ((window as any).showSaveFilePicker) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: `${safeTitle}-comments-${Date.now()}.csv`,
+          types: [
+            {
+              description: 'CSV file',
+              accept: { 'text/csv': ['.csv'] },
+            },
+          ],
+        });
+        const writable: any = await handle.createWritable();
+        const encoder = new TextEncoder();
 
-        if (json.items) {
-          const rows = json.items.map((item: any) => {
-            const comment = item.snippet.topLevelComment.snippet;
-            return [
-              `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
-              `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
-              comment.likeCount,
-              new Date(comment.publishedAt).toLocaleDateString(),
-            ].join(',');
-          });
-          
-          csvRows.push(...rows);
-          totalComments += json.items.length;
-        }
+        // Write CSV header first
+        await writable.write(encoder.encode(headers.join(',') + '\n'));
 
-        nextPageToken = json.nextPageToken;
-        pageCount++;
-        
-        // Add delay to avoid rate limiting
-        if (nextPageToken) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      } while (nextPageToken);
+        do {
+          const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+          const json = await fetchWithRetry(url);
 
-      // Create CSV from streamed rows
-      const csvContent = csvRows.join('\n');
+          if (json.items) {
+            const rowsStr = json.items
+              .map((item: any) => {
+                const comment = item.snippet.topLevelComment.snippet;
+                return [
+                  `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
+                  `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
+                  comment.likeCount,
+                  new Date(comment.publishedAt).toLocaleDateString(),
+                ].join(',');
+              })
+              .join('\n');
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${videoTitle.substring(0, 30)}-comments-${Date.now()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+            if (rowsStr.length) {
+              await writable.write(encoder.encode(rowsStr + '\n'));
+              totalComments += json.items.length;
+            }
+          }
+
+          nextPageToken = json.nextPageToken;
+          pageCount++;
+
+          // Gentle pacing to avoid rate limiting and keep UI responsive
+          if (nextPageToken) await wait(300);
+          await wait(0);
+        } while (nextPageToken);
+
+        await writable.close();
+      } else {
+        // Fallback: accumulate in-memory and download as a Blob (may be slower for very large files)
+        let csvRows: string[] = [];
+        csvRows.push(headers.join(','));
+
+        do {
+          const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+          const json = await fetchWithRetry(url);
+
+          if (json.items) {
+            const rows = json.items.map((item: any) => {
+              const comment = item.snippet.topLevelComment.snippet;
+              return [
+                `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
+                `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
+                comment.likeCount,
+                new Date(comment.publishedAt).toLocaleDateString(),
+              ].join(',');
+            });
+            csvRows.push(...rows);
+            totalComments += json.items.length;
+          }
+
+          nextPageToken = json.nextPageToken;
+          pageCount++;
+
+          if (nextPageToken) await wait(300);
+          if (pageCount % 5 === 0) await wait(0);
+        } while (nextPageToken);
+
+        const csvContent = csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${safeTitle}-comments-${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
 
       if (showToast) {
         toast({
@@ -271,7 +326,7 @@ export default function ChannelAnalysis() {
           description: `Downloaded ${totalComments} comments`,
         });
       }
-      
+
       return totalComments;
     } catch (error: any) {
       console.error('Error downloading comments:', error);
