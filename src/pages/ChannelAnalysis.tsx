@@ -106,6 +106,8 @@ export default function ChannelAnalysis() {
       const channel = channelJson.items[0];
       channelId = channel.id;
       
+      const uploadsPlaylistId = channel.contentDetails.relatedPlaylists.uploads;
+      
       setChannelData({
         id: channelId,
         title: channel.snippet.title,
@@ -116,17 +118,17 @@ export default function ChannelAnalysis() {
         viewCount: parseInt(channel.statistics.viewCount).toLocaleString(),
       });
 
-      // Fetch all videos from the channel
+      // Fetch all videos from the uploads playlist
       let allVideos: any[] = [];
       let nextPageToken: string | undefined = undefined;
 
       do {
-        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&maxResults=50&order=date&type=video&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
-        const searchResponse = await fetch(searchUrl);
-        const searchJson = await searchResponse.json();
+        const playlistUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=50&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+        const playlistResponse = await fetch(playlistUrl);
+        const playlistJson = await playlistResponse.json();
 
-        if (searchJson.items) {
-          const videoIds = searchJson.items.map((item: any) => item.id.videoId).join(',');
+        if (playlistJson.items) {
+          const videoIds = playlistJson.items.map((item: any) => item.snippet.resourceId.videoId).join(',');
           
           // Fetch detailed statistics for these videos
           const statsResponse = await fetch(
@@ -139,7 +141,7 @@ export default function ChannelAnalysis() {
           }
         }
 
-        nextPageToken = searchJson.nextPageToken;
+        nextPageToken = playlistJson.nextPageToken;
       } while (nextPageToken);
 
       // Sort by view count (popularity)
