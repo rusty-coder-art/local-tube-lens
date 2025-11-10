@@ -227,7 +227,6 @@ export default function ChannelAnalysis() {
       let nextPageToken: string | undefined = undefined;
       let totalComments = 0;
       let pageCount = 0;
-      const safeTitle = videoTitle.replace(/[\\/:*?"<>|]+/g, '').substring(0, 50);
 
       // Build CSV in chunks to manage memory better
       const chunks: string[] = [];
@@ -260,13 +259,14 @@ export default function ChannelAnalysis() {
         if (pageCount % 5 === 0) await wait(0);
       } while (nextPageToken);
 
-      // Create and download blob
+      // Create and download blob with channel name and comment count in filename
       const csvContent = chunks.join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${safeTitle}-comments-${Date.now()}.csv`;
+      const safeTitle = videoTitle.replace(/[\\/:*?"<>|]+/g, '').trim().substring(0, 50);
+      a.download = `${safeTitle} ${totalComments}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
