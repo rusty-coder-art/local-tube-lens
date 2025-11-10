@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Download, PlayCircle, Eye, ThumbsUp } from "lucide-react";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
+import JSZip from "jszip";
 import {
   Select,
   SelectContent,
@@ -198,9 +199,7 @@ export default function ChannelAnalysis() {
     }
   };
 
-  const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
-    if (!apiKey) return;
-
+  const fetchCommentsForVideo = async (videoId: string, videoTitle: string) => {
     const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
     const fetchWithRetry = async (url: string) => {
       let attempt = 0;
@@ -216,19 +215,11 @@ export default function ChannelAnalysis() {
     };
 
     try {
-      if (showToast) {
-        toast({
-          title: "Downloading comments...",
-          description: "Processing in chunks for reliability",
-        });
-      }
-
       const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
       let nextPageToken: string | undefined = undefined;
       let totalComments = 0;
       let pageCount = 0;
 
-      // Build CSV in chunks to manage memory better
       const chunks: string[] = [];
       chunks.push(headers.join(','));
 
@@ -254,13 +245,41 @@ export default function ChannelAnalysis() {
         nextPageToken = json.nextPageToken;
         pageCount++;
 
-        // Pace requests and yield to browser every 5 pages
         if (nextPageToken) await wait(300);
         if (pageCount % 5 === 0) await wait(0);
       } while (nextPageToken);
 
-      // Create and download blob with channel name and comment count in filename
-      const csvContent = chunks.join('\n');
+      return { csvContent: chunks.join('\n'), totalComments };
+    } catch (error: any) {
+      console.error('Error fetching comments:', error);
+      return { csvContent: '', totalComments: 0 };
+    }
+  };
+
+  const downloadCommentsCSV = async (videoId: string, videoTitle: string, showToast = true) => {
+    if (!apiKey) return;
+
+    try {
+      if (showToast) {
+        toast({
+          title: "Downloading comments...",
+          description: "Processing in chunks for reliability",
+        });
+      }
+
+      const { csvContent, totalComments } = await fetchCommentsForVideo(videoId, videoTitle);
+
+      if (totalComments === 0) {
+        if (showToast) {
+          toast({
+            title: "No Comments",
+            description: "This video has no comments to download",
+            variant: "destructive",
+          });
+        }
+        return 0;
+      }
+
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -294,7 +313,7 @@ export default function ChannelAnalysis() {
   };
 
   const downloadAllCommentsCSV = async () => {
-    if (!apiKey) return;
+    if (!apiKey || !channelData) return;
 
     const videosWithComments = videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0");
     
@@ -311,30 +330,35 @@ export default function ChannelAnalysis() {
     setCancelBulkDownload(false);
     setDownloadProgress({ current: 0, total: videosWithComments.length });
 
+    const zip = new JSZip();
     let successCount = 0;
     let totalComments = 0;
 
     for (let i = 0; i < videosWithComments.length; i++) {
-      // Check if user cancelled
       if (cancelBulkDownload) {
         toast({
           title: "Download Cancelled",
           description: `Downloaded ${totalComments} comments from ${successCount} videos before cancellation`,
           variant: "destructive",
         });
-        break;
+        setIsDownloadingAll(false);
+        setDownloadProgress({ current: 0, total: 0 });
+        setCancelBulkDownload(false);
+        return;
       }
 
       const video = videosWithComments[i];
       setDownloadProgress({ current: i + 1, total: videosWithComments.length });
       
-      const count = await downloadCommentsCSV(video.id, video.snippet.title, false);
+      const { csvContent, totalComments: count } = await fetchCommentsForVideo(video.id, video.snippet.title);
+      
       if (count > 0) {
+        const safeTitle = video.snippet.title.replace(/[\\/:*?"<>|]+/g, '').trim().substring(0, 50);
+        zip.file(`${safeTitle} ${count}.csv`, csvContent);
         successCount++;
         totalComments += count;
       }
       
-      // Small delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
@@ -342,10 +366,21 @@ export default function ChannelAnalysis() {
     setDownloadProgress({ current: 0, total: 0 });
     setCancelBulkDownload(false);
 
-    if (!cancelBulkDownload) {
+    if (successCount > 0) {
+      const safeChannelName = channelData.title.replace(/[\\/:*?"<>|]+/g, '').trim();
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeChannelName} ${totalComments}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
       toast({
         title: "Bulk Download Complete!",
-        description: `Downloaded ${totalComments} comments from ${successCount} videos`,
+        description: `Downloaded ${totalComments} comments from ${successCount} videos in a ZIP folder`,
       });
     }
   };
