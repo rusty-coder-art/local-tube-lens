@@ -36,6 +36,7 @@ export default function ChannelAnalysis() {
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
   const [cancelBulkDownload, setCancelBulkDownload] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const videosPerPage = 30;
   const maxVideos = 200;
   
@@ -223,31 +224,49 @@ export default function ChannelAnalysis() {
       const chunks: string[] = [];
       chunks.push(headers.join(','));
 
-      do {
-        const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
-        const json = await fetchWithRetry(url);
+        do {
+          // Allow cancel before requesting next page
+          if (cancelBulkDownload) {
+            return { csvContent: chunks.join('\n'), totalComments, cancelled: true } as any;
+          }
+          // Pause support between pages
+          while (isPaused && !cancelBulkDownload) {
+            await wait(200);
+          }
 
-        if (json.items) {
-          const rows = json.items.map((item: any) => {
-            const comment = item.snippet.topLevelComment.snippet;
-            return [
-              `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
-              `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
-              comment.likeCount,
-              new Date(comment.publishedAt).toLocaleDateString(),
-            ].join(',');
-          });
-          
-          chunks.push(...rows);
-          totalComments += json.items.length;
-        }
+          const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+          const json = await fetchWithRetry(url);
 
-        nextPageToken = json.nextPageToken;
-        pageCount++;
+          if (json.items) {
+            const rows = json.items.map((item: any) => {
+              const comment = item.snippet.topLevelComment.snippet;
+              return [
+                `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
+                `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
+                comment.likeCount,
+                new Date(comment.publishedAt).toLocaleDateString(),
+              ].join(',');
+            });
+            
+            chunks.push(...rows);
+            totalComments += json.items.length;
+          }
 
-        if (nextPageToken) await wait(300);
-        if (pageCount % 5 === 0) await wait(0);
-      } while (nextPageToken);
+          nextPageToken = json.nextPageToken;
+          pageCount++;
+
+          // Early exit if cancelled mid-video
+          if (cancelBulkDownload) {
+            return { csvContent: chunks.join('\n'), totalComments, cancelled: true } as any;
+          }
+          // Honor pause after each page
+          while (isPaused && !cancelBulkDownload) {
+            await wait(200);
+          }
+
+          if (nextPageToken) await wait(300);
+          if (pageCount % 5 === 0) await wait(0);
+        } while (nextPageToken);
 
       return { csvContent: chunks.join('\n'), totalComments };
     } catch (error: any) {
@@ -328,6 +347,7 @@ export default function ChannelAnalysis() {
 
     setIsDownloadingAll(true);
     setCancelBulkDownload(false);
+    setIsPaused(false);
     setDownloadProgress({ current: 0, total: videosWithComments.length });
 
     const zip = new JSZip();
@@ -350,7 +370,27 @@ export default function ChannelAnalysis() {
       const video = videosWithComments[i];
       setDownloadProgress({ current: i + 1, total: videosWithComments.length });
       
-      const { csvContent, totalComments: count } = await fetchCommentsForVideo(video.id, video.snippet.title);
+      // Respect pause between videos
+      while (isPaused && !cancelBulkDownload) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+
+      const result: any = await fetchCommentsForVideo(video.id, video.snippet.title);
+
+      if (cancelBulkDownload || result?.cancelled) {
+        toast({
+          title: "Download Cancelled",
+          description: `Downloaded ${totalComments} comments from ${successCount} videos before cancellation`,
+          variant: "destructive",
+        });
+        setIsDownloadingAll(false);
+        setDownloadProgress({ current: 0, total: 0 });
+        setCancelBulkDownload(false);
+        setIsPaused(false);
+        return;
+      }
+
+      const { csvContent, totalComments: count } = result;
       
       if (count > 0) {
         const safeTitle = video.snippet.title.replace(/[\\/:*?"<>|]+/g, '').trim().substring(0, 50);
@@ -365,7 +405,7 @@ export default function ChannelAnalysis() {
     setIsDownloadingAll(false);
     setDownloadProgress({ current: 0, total: 0 });
     setCancelBulkDownload(false);
-
+    setIsPaused(false);
     if (successCount > 0) {
       const safeChannelName = channelData.title.replace(/[\\/:*?"<>|]+/g, '').trim();
       const blob = await zip.generateAsync({ type: 'blob' });
@@ -558,13 +598,22 @@ export default function ChannelAnalysis() {
                     : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
                 </Button>
                 {isDownloadingAll && (
-                  <Button
-                    onClick={() => setCancelBulkDownload(true)}
-                    variant="destructive"
-                    className="gap-2"
-                  >
-                    Stop
-                  </Button>
+                  <>
+                    <Button
+                      onClick={() => setIsPaused((p) => !p)}
+                      variant="secondary"
+                      className="gap-2"
+                    >
+                      {isPaused ? 'Resume' : 'Pause'}
+                    </Button>
+                    <Button
+                      onClick={() => setCancelBulkDownload(true)}
+                      variant="destructive"
+                      className="gap-2"
+                    >
+                      Stop
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
