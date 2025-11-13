@@ -200,7 +200,7 @@ export default function ChannelAnalysis() {
     }
   };
 
-  const fetchCommentsForVideo = async (videoId: string, videoTitle: string) => {
+  const fetchCommentsForVideo = async (videoId: string, videoTitle: string, isBulkDownload = false) => {
     const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
     const fetchWithRetry = async (url: string) => {
       let attempt = 0;
@@ -225,13 +225,15 @@ export default function ChannelAnalysis() {
       chunks.push(headers.join(','));
 
         do {
-          // Allow cancel before requesting next page
-          if (cancelBulkDownload) {
+          // Allow cancel before requesting next page (only for bulk downloads)
+          if (isBulkDownload && cancelBulkDownload) {
             return { csvContent: chunks.join('\n'), totalComments, cancelled: true } as any;
           }
-          // Pause support between pages
-          while (isPaused && !cancelBulkDownload) {
-            await wait(200);
+          // Pause support between pages (only for bulk downloads)
+          if (isBulkDownload) {
+            while (isPaused && !cancelBulkDownload) {
+              await wait(200);
+            }
           }
 
           const url = `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&key=${apiKey}${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
@@ -255,13 +257,15 @@ export default function ChannelAnalysis() {
           nextPageToken = json.nextPageToken;
           pageCount++;
 
-          // Early exit if cancelled mid-video
-          if (cancelBulkDownload) {
+          // Early exit if cancelled mid-video (only for bulk downloads)
+          if (isBulkDownload && cancelBulkDownload) {
             return { csvContent: chunks.join('\n'), totalComments, cancelled: true } as any;
           }
-          // Honor pause after each page
-          while (isPaused && !cancelBulkDownload) {
-            await wait(200);
+          // Honor pause after each page (only for bulk downloads)
+          if (isBulkDownload) {
+            while (isPaused && !cancelBulkDownload) {
+              await wait(200);
+            }
           }
 
           if (nextPageToken) await wait(300);
@@ -375,7 +379,7 @@ export default function ChannelAnalysis() {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      const result: any = await fetchCommentsForVideo(video.id, video.snippet.title);
+      const result: any = await fetchCommentsForVideo(video.id, video.snippet.title, true);
 
       if (cancelBulkDownload || result?.cancelled) {
         toast({
