@@ -1,4 +1,3 @@
-Here’s a first‑person, fully rewritten README that uses “my” voice and renders cleanly on GitHub with proper headings, lists, and code blocks.
 
 # 🧭 Project Overview
 This is my React + TypeScript web application, powered by Vite for fast builds and dev previews, styled with Tailwind CSS and shadcn-ui. I can develop locally in my preferred IDE, work directly on GitHub, spin up a cloud dev environment with Codespaces, or use any hosted editor. This guide covers setup, development, deployment, and custom domains.
