@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Download, PlayCircle, Eye, ThumbsUp } from "lucide-react";
 import { ApiKeyDialog } from "@/components/ApiKeyDialog";
@@ -37,6 +38,7 @@ export default function ChannelAnalysis() {
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
   const [cancelBulkDownload, setCancelBulkDownload] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [includeReplies, setIncludeReplies] = useState(false);
   const videosPerPage = 30;
   const maxVideos = 200;
   
@@ -200,7 +202,7 @@ export default function ChannelAnalysis() {
     }
   };
 
-  const fetchCommentsForVideo = async (videoId: string, videoTitle: string, isBulkDownload = false) => {
+  const fetchCommentsForVideo = async (videoId: string, videoTitle: string, isBulkDownload = false, shouldIncludeReplies = false) => {
     const wait = (ms: number) => new Promise((res) => setTimeout(res, ms));
     const fetchWithRetry = async (url: string) => {
       let attempt = 0;
@@ -216,7 +218,9 @@ export default function ChannelAnalysis() {
     };
 
     try {
-      const headers = ['Author', 'Comment', 'Likes', 'Published Date'];
+      const headers = shouldIncludeReplies 
+        ? ['Author', 'Comment', 'Likes', 'Published Date', 'Comment Type', 'Parent Author']
+        : ['Author', 'Comment', 'Likes', 'Published Date'];
       let nextPageToken: string | undefined = undefined;
       let totalComments = 0;
       let pageCount = 0;
@@ -240,18 +244,63 @@ export default function ChannelAnalysis() {
           const json = await fetchWithRetry(url);
 
           if (json.items) {
-            const rows = json.items.map((item: any) => {
+            for (const item of json.items) {
               const comment = item.snippet.topLevelComment.snippet;
-              return [
+              const row = [
                 `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
                 `"${comment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
                 comment.likeCount,
                 new Date(comment.publishedAt).toLocaleDateString(),
-              ].join(',');
-            });
-            
-            chunks.push(...rows);
-            totalComments += json.items.length;
+              ];
+              
+              if (shouldIncludeReplies) {
+                row.push('Top-level', '');
+              }
+              
+              chunks.push(row.join(','));
+              totalComments++;
+
+              // Fetch replies if enabled and there are replies
+              if (shouldIncludeReplies && item.snippet.totalReplyCount > 0) {
+                try {
+                  let replyPageToken: string | undefined = undefined;
+                  do {
+                    if (isBulkDownload && cancelBulkDownload) {
+                      return { csvContent: chunks.join('\n'), totalComments, cancelled: true } as any;
+                    }
+                    if (isBulkDownload) {
+                      while (isPaused && !cancelBulkDownload) {
+                        await wait(200);
+                      }
+                    }
+
+                    const replyUrl = `https://www.googleapis.com/youtube/v3/comments?part=snippet&parentId=${item.id}&maxResults=100&key=${apiKey}${replyPageToken ? `&pageToken=${replyPageToken}` : ''}`;
+                    const replyJson = await fetchWithRetry(replyUrl);
+
+                    if (replyJson.items) {
+                      for (const replyItem of replyJson.items) {
+                        const replyComment = replyItem.snippet;
+                        const replyRow = [
+                          `"${replyComment.authorDisplayName.replace(/"/g, '""')}"`,
+                          `"${replyComment.textDisplay.replace(/<[^>]*>/g, '').replace(/"/g, '""')}"`,
+                          replyComment.likeCount,
+                          new Date(replyComment.publishedAt).toLocaleDateString(),
+                          'Reply',
+                          `"${comment.authorDisplayName.replace(/"/g, '""')}"`,
+                        ];
+                        chunks.push(replyRow.join(','));
+                        totalComments++;
+                      }
+                    }
+
+                    replyPageToken = replyJson.nextPageToken;
+                    if (replyPageToken) await wait(300);
+                  } while (replyPageToken);
+                } catch (error) {
+                  console.error(`Error fetching replies for comment ${item.id}:`, error);
+                }
+              }
+            }
           }
 
           nextPageToken = json.nextPageToken;
@@ -379,7 +428,7 @@ export default function ChannelAnalysis() {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      const result: any = await fetchCommentsForVideo(video.id, video.snippet.title, true);
+      const result: any = await fetchCommentsForVideo(video.id, video.snippet.title, true, includeReplies);
 
       if (cancelBulkDownload || result?.cancelled) {
         toast({
@@ -590,17 +639,32 @@ export default function ChannelAnalysis() {
                   </Select>
                 </div>
               </div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <Button
-                  onClick={downloadAllCommentsCSV}
-                  disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
-                  className="flex-1 sm:flex-initial gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  {isDownloadingAll 
-                    ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
-                    : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
-                </Button>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="includeReplies" 
+                    checked={includeReplies}
+                    onCheckedChange={(checked) => setIncludeReplies(checked as boolean)}
+                    disabled={isDownloadingAll}
+                  />
+                  <label
+                    htmlFor="includeReplies"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Include replies/subcomments in bulk download
+                  </label>
+                </div>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <Button
+                    onClick={downloadAllCommentsCSV}
+                    disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
+                    className="flex-1 sm:flex-initial gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    {isDownloadingAll 
+                      ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
+                      : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
+                  </Button>
                 {isDownloadingAll && (
                   <>
                     <Button
@@ -620,6 +684,7 @@ export default function ChannelAnalysis() {
                   </>
                 )}
               </div>
+            </div>
             </div>
             <div className="grid gap-4">
               {sortedVideos.slice((currentPage - 1) * videosPerPage, currentPage * videosPerPage).map((video, index) => (
