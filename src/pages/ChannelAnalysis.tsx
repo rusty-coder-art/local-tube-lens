@@ -39,6 +39,8 @@ export default function ChannelAnalysis() {
   const [cancelBulkDownload, setCancelBulkDownload] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [includeReplies, setIncludeReplies] = useState(false);
+  const [bulkRangeStart, setBulkRangeStart] = useState(1);
+  const [bulkRangeEnd, setBulkRangeEnd] = useState(200);
   const videosPerPage = 30;
   const maxVideos = 200;
   
@@ -387,7 +389,12 @@ export default function ChannelAnalysis() {
   const downloadAllCommentsCSV = async () => {
     if (!apiKey || !channelData) return;
 
-    const videosWithComments = videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0");
+    // Apply range filter based on sorted videos
+    const sorted = sortVideos(videos);
+    const rangeStart = Math.max(1, bulkRangeStart);
+    const rangeEnd = Math.min(sorted.length, bulkRangeEnd);
+    const videosInRange = sorted.slice(rangeStart - 1, rangeEnd);
+    const videosWithComments = videosInRange.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0");
     
     if (videosWithComments.length === 0) {
       toast({
@@ -654,16 +661,39 @@ export default function ChannelAnalysis() {
                     Include replies/subcomments in bulk download
                   </label>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Download videos from</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={videos.length}
+                    value={bulkRangeStart}
+                    onChange={(e) => setBulkRangeStart(Math.max(1, parseInt(e.target.value) || 1))}
+                    disabled={isDownloadingAll}
+                    className="w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={videos.length}
+                    value={bulkRangeEnd}
+                    onChange={(e) => setBulkRangeEnd(Math.min(videos.length, parseInt(e.target.value) || videos.length))}
+                    disabled={isDownloadingAll}
+                    className="w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">(based on current sort)</span>
+                </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <Button
                     onClick={downloadAllCommentsCSV}
-                    disabled={isDownloadingAll || videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
+                    disabled={isDownloadingAll || sortVideos(videos).slice(Math.max(0, bulkRangeStart - 1), bulkRangeEnd).filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length === 0}
                     className="flex-1 sm:flex-initial gap-2"
                   >
                     <Download className="w-4 h-4" />
                     {isDownloadingAll 
                       ? `Downloading... (${downloadProgress.current}/${downloadProgress.total})` 
-                      : `Download All Comments (${videos.filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
+                      : `Download Comments (${sortVideos(videos).slice(Math.max(0, bulkRangeStart - 1), bulkRangeEnd).filter(v => v.statistics.commentCount && v.statistics.commentCount !== "0").length} videos)`}
                   </Button>
                 {isDownloadingAll && (
                   <>
