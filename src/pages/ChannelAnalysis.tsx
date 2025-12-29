@@ -211,7 +211,13 @@ export default function ChannelAnalysis() {
       while (true) {
         const response = await fetch(url);
         if (response.ok) return await response.json();
-        if ([429, 403, 500, 503].includes(response.status) && attempt < 4) {
+        // Don't retry on 403 (quota exceeded) - it won't help
+        if (response.status === 403) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData?.error?.message || 'Quota exceeded or access denied');
+        }
+        // Only retry on rate limits (429) and server errors (500, 503)
+        if ([429, 500, 503].includes(response.status) && attempt < 4) {
           await wait(500 * Math.pow(2, attempt++));
           continue;
         }
